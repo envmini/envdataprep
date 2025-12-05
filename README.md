@@ -1,9 +1,7 @@
 # EnvDataPrep: Optimized Environmental Data Preprocessing
-
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Development Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
-
 
 ## Why EnvDataPrep?
 EnvDataPrep saves **Money**, **Time** and **Disk Storage** for those who deal with environmental datasets.
@@ -17,7 +15,7 @@ from pathlib import Path
 import envdataprep as edp
 
 # Set up input and output directories
-ROOT = Path("F:/EnvMini/Examples")
+ROOT = Path("E:/Samples/Satellites")
 input_dir = ROOT / "Input"
 output_dir = ROOT / "Output"
 
@@ -43,27 +41,7 @@ edp.extract_and_write_netcdf(
     file_path,
     output_dir,
     variable_paths,
-    output_name="example_output_original.nc",
-    compression='zlib',
-    compression_level=9,
-)
-
-# Rename the variables before save out
-# By removing the "/" from the variable paths,
-# The output file will have a flat structure
-variable_renames = {
-    "latitude": "PRODUCT/latitude",
-    "longitude": "PRODUCT/longitude",
-    "no2": "PRODUCT/nitrogendioxide_tropospheric_column",
-    "cloud": "PRODUCT/SUPPORT_DATA/INPUT_DATA/cloud_fraction_crb",
-}
-
-edp.extract_and_write_netcdf(
-    file_path,
-    output_dir,
-    variable_paths,
-    output_name="example_output_renamed.nc",
-    variable_renames=variable_renames,
+    output_name="example_extracted_data.nc",
     compression='zlib',
     compression_level=9,
 )
