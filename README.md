@@ -1,4 +1,4 @@
-# EnvDataPrep: High-peformance Environmental Data Pre-processing
+# EnvDataPrep: High-performance Environmental Data Pre-processing
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Development Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
