@@ -6,6 +6,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, List, Dict, Any, Optional, Tuple
 from functools import partial
 
+from tqdm import tqdm
+
+
+# TODO: Re-think about the parellel function
+# How should all the functions be parellelized? Using Ray or not?
+# Use this chance to learn threading, multiprocessing
+
 
 def _process_single_file(file_path, process_func, func_kwargs):
     """Wrapper to handle exceptions for single file processing."""
@@ -62,26 +69,25 @@ def process_files_parallel(
     """
     func_kwargs = func_kwargs or {}
     max_workers = max_workers or os.cpu_count()
-    
+
     successful = []
     failed = []
-    
+
     # Use partial to bind arguments
     worker_func = partial(_process_single_file, process_func=process_func, func_kwargs=func_kwargs)
-    
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(worker_func, f): f for f in files}
-        
+
         if show_progress:
             try:
-                from tqdm import tqdm
                 iterator = tqdm(as_completed(futures), total=len(files), desc="Processing")
             except ImportError:
                 print("Install tqdm for progress bar: pip install tqdm")
                 iterator = as_completed(futures)
         else:
             iterator = as_completed(futures)
-        
+
         for future in iterator:
             file_path, success, result, error = future.result()
             if success:
@@ -90,7 +96,7 @@ def process_files_parallel(
                 failed.append((file_path, error))
                 if show_progress:
                     print(f"\nFailed: {os.path.basename(file_path)} - {error}")
-    
+
     return successful, failed
 
 
@@ -132,31 +138,30 @@ def batch_process(
     """
     func_kwargs = func_kwargs or {}
     max_workers = max_workers or os.cpu_count()
-    
+
     successful = []
     failed = []
-    
+
     # Use partial to bind arguments
     worker_func = partial(_process_single_item, process_func=process_func, func_kwargs=func_kwargs)
-    
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(worker_func, item): item for item in items}
-        
+
         if show_progress:
             try:
-                from tqdm import tqdm
                 iterator = tqdm(as_completed(futures), total=len(items), desc="Processing")
             except ImportError:
                 print("Install tqdm for progress bar: pip install tqdm")
                 iterator = as_completed(futures)
         else:
             iterator = as_completed(futures)
-        
+
         for future in iterator:
             item, success, result, error = future.result()
             if success:
                 successful.append(item)
             else:
                 failed.append((item, error))
-    
+
     return successful, failed
