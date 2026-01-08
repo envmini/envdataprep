@@ -37,7 +37,7 @@ variable_paths = [
 
 # Extract and save out
 # By default, the output file preserves the original group structure
-edp.extract_and_write_netcdf(
+edp.subset_netcdf(
     file_path,
     output_dir,
     variable_paths,
