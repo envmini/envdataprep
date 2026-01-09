@@ -6,7 +6,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, List, Dict, Any, Optional, Tuple
 from functools import partial
 
-from tqdm import tqdm
+# import tqdm
 
 
 # TODO: Re-think about the parellel function

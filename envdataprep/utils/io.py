@@ -78,3 +78,23 @@ def generate_subset_output_path(
         output_dir = os.path.dirname(input_path)
 
     return os.path.join(output_dir, filename)
+
+
+# TODO: Re-think about if the exceptions are suitable
+def report_file_size_reduction(input_path: str, output_path: str) -> None:
+    """Report file size reduction.
+
+    Parameters
+    ----------
+    input_path : str
+        Path to input file.
+    output_path : str
+        Path to output file.
+    """
+    try:
+        original_size = os.path.getsize(input_path)
+        subset_size = os.path.getsize(output_path)
+        reduction = (1 - subset_size / original_size) * 100
+        print(f"File size reduction: {reduction:.1f}%")
+    except (OSError, ZeroDivisionError) as e:
+        print(f"Could not compute file size reduction: {e}")

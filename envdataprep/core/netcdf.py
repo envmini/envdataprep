@@ -2,12 +2,11 @@
 I/O functions and classes for netCDF files.
 
 This module leverages two widely used Python libraries for working with
-netCDF data: netCDF4 and xarray. The design combines high-performance,
+netCDF data: netCDF4 and Xarray. The design combines high-performance,
 low-level file access with a simple and expressive interface.
 
 The netCDF4 library is used primarily for reading netCDF files, as it
-provides direct access to nested group hierarchies and fine-grained
-control over variables and metadata.
+provides direct access to nested group hierarchies.
 
 Xarray is used for writing netCDF files, benefiting from its concise
 syntax and tight integration with labeled, multi-dimensional data
@@ -20,7 +19,7 @@ objects where appropriate.
 
 import os
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import netCDF4 as nc
 import numpy as np
@@ -29,12 +28,21 @@ import xarray as xr
 from ..utils.io import (
     handle_file_errors,
     generate_subset_output_path,
+    report_file_size_reduction,
 )
+
+from ..utils.warnings import warn_unvalidated_subset
+
+
+# Based on experiments using the TROPOMI satellite product
+# This is the optimal compression level
+# Considering both reduced file size and processing time
+# This was also recommended by AI
+# before conducting any independent experiments
+DEFAULT_NETCDF_COMPRESSION_LEVEL = 4
 
 
 # TODO: Maybe re-think about the naming conventions
-# TODO: Re-think about the compare function and validate function
-
 def _collect_netcdf_variable_paths(
     group: nc.Dataset, path_prefix: str = ""
 ) -> List[str]:
@@ -95,33 +103,44 @@ def list_netcdf_variables(file_path: str) -> List[str]:
         return _collect_netcdf_variable_paths(group=ds)
 
 
+
 def netcdf_variable_to_xarray_dataarray(
-    nc_variable: nc.Variable, variable_path: str
+    nc_variable: nc.Variable,
+    variable_path: str,
 ) -> xr.DataArray:
     """Convert a netCDF4 variable to an xarray DataArray.
 
+    By default, this function preserves original fill values without
+    converting them to NaNs, giving the user control over how to handle
+    missing data representation.
+    
     Parameters
     ----------
     nc_variable : netCDF4.Variable
-        The netCDF variable to convert.
+        The netCDF4 variable to convert
     variable_path : str
-        Full path of the variable in the netCDF file.
-
-    Returns
-    -------
-    xr.DataArray
-        The converted DataArray with data, dimensions, and attributes.
+        Path/name for the variable
+    convert_fill_to_nan : bool, default False
+        If True, converts _FillValue to NaN. If False, preserves original fill values.
     """
+    # Get attributes
     attrs = {k: nc_variable.getncattr(k) for k in nc_variable.ncattrs()}
 
-    # Disable auto-scaling to get raw values
-    # This is crucial for data fields with scale factors
-    # Such as the qa_value in TROPOMI products
-    # TODO: Further test this with other data products
-    # or add one more function to let user doublecheck the
-    # correctness of the data, a function to compare data fields
-    # in two netcdf files
-    nc_variable.set_auto_scale(False)
+    # Control automatic masking and scaling
+    # IMPORTANT: The design is set False
+    # set_auto_scale(False) only disables
+    # scale_factor and add_offset, but not _FillValue
+    # Xarray follows the CF conventions for netCDF files
+    # By default, it will automatically detect "_FillValue"
+    # in the netCDF data and convert filled data to NaNs
+    # To turn off this conversion
+    # set_auto_maskandscale(False) should be used
+    # In the design of EnvDataPrep
+    # We prioritize preserving the original data
+    # So here it is hardcoded to be False
+    # Xarray should not do the conversion for those
+    # netCDF files which do not follow the CF conventions
+    nc_variable.set_auto_maskandscale(False)
 
     return xr.DataArray(
         data=nc_variable[:],
@@ -194,7 +213,7 @@ def rename_xarray_dataset_variables(
     return xarray_dataset
 
 
-def create_group_mapping(variable_names: List[str]) -> Dict[str, List[str]]:
+def _create_group_mapping(variable_names: List[str]) -> Dict[str, List[str]]:
     """Create mapping of group paths to variable names for hierarchical writing.
 
     Parameters
@@ -219,97 +238,6 @@ def create_group_mapping(variable_names: List[str]) -> Dict[str, List[str]]:
         groups[group_path].append(variable_name)
 
     return dict(groups)
-
-
-def _create_encoding(
-    xarray_dataset: xr.Dataset,
-    compression_method: Optional[str] = "gzip",
-    compression_level: int = 4,
-    shuffle: bool = True,
-    fletcher32: bool = True,
-) -> Dict:
-    """Create encoding dictionary for netCDF output.
-
-    Encoding controls how xarray writes data to the netCDF file, including:
-        - Compression algorithms to reduce file size
-        - Data integrity checks (checksums)
-        - Data layout optimizations (shuffle filter)
-
-    Parameters
-    ----------
-    xarray_dataset : xr.Dataset
-        Dataset containing variables to encode.
-    compression : str, optional
-        Compression algorithm ('zlib', 'lzf', 'gzip', 'szip').
-        None means no compression.
-    compression_level : int
-        Compression strength (0-9). Higher = smaller files, slower write.
-    shuffle : bool
-        Reorder bytes before compression for better compression ratios.
-        Especially effective for scientific data with similar values.
-    fletcher32 : bool
-        Add checksum for data integrity verification.
-
-    Returns
-    -------
-    Dict
-        Encoding dictionary mapping {variable_name: encoding_settings}.
-        Example: {"temperature": {"zlib": True, "complevel": 4, "shuffle": True}}
-
-    Examples
-    --------
-    >>> encoding = _create_encoding(dataset, "zlib", 4, True, False)
-    >>> # Results in ~70% smaller files for typical environmental data
-    """
-    if compression_method is None:
-        return {}  # No encoding = uncompressed output
-
-    # Define how each compression algorithm maps to xarray/netCDF parameters
-    compression_configs = {
-        "zlib": lambda level: {
-            "zlib": True, "complevel": level  # Most common, good balance
-        },
-        "lzf": lambda level: {
-            "compression_method": "lzf",  # Fastest compression
-        },
-        "gzip": lambda level: {
-            "compression_method": "gzip",  # Standard gzip
-            "compression_opts": level,
-        },
-        "szip": lambda level: {
-            "compression_method": "szip",  # NASA/HDF5 standard
-        },
-    }
-
-    if compression_method not in compression_configs:
-        valid_options = list(compression_configs.keys())
-        raise ValueError(
-            f"Unsupported compression: {compression_method}."
-            f"Valid options: {valid_options}"
-        )
-
-    encoding = {}
-    # Get the compression settings for the chosen algorithm
-    compression_config = (
-        compression_configs[compression_method](compression_level)
-    )
-
-    # Apply the same encoding settings to every variable in the dataset
-    for variable_name in xarray_dataset.data_vars:
-        # Start with compression settings (zlib, gzip, etc.)
-        variable_encoding = compression_config.copy()
-
-        # Add data optimization settings
-        variable_encoding.update({
-            "shuffle": shuffle,  # Reorder bytes for better compression
-            "fletcher32": fletcher32  # Add checksum for data integrity
-        })
-
-        # Map variable name to its encoding settings
-        # This tells xarray: "when writing 'temperature', use these settings"
-        encoding[str(variable_name)] = variable_encoding
-
-    return encoding
 
 
 def _clean_group_variable_names(
@@ -351,15 +279,70 @@ def _clean_group_variable_names(
     )
 
 
+def _create_encoding(
+    xarray_dataset: xr.Dataset,
+    compression_method: Optional[str] = "zlib",  # Changed default back to zlib
+    compression_level: int = DEFAULT_NETCDF_COMPRESSION_LEVEL,
+    shuffle: bool = True,
+    fletcher32: bool = False,  # Changed default to False
+) -> Dict:
+    """Create encoding dictionary for netCDF output.
+    
+    Only compresses numeric variables larger than 1KB to avoid encoding conflicts.
+    """
+    if compression_method is None:
+        return {}
+
+    # TODO: consider whether to force compression via zlib
+    # Or, what about try to use zlib by default
+    # And when it does not work for some data source, fall back to no compression
+    # Currently only stick with zlib which works
+    # Other algorithms (gzip, szip, lzf) lead to errors
+    # And the trials show that zlib significantly accelerates the writing process
+    # Should conduct more tests on this
+    compression_configs = {
+        "zlib": lambda level: {"zlib": True, "complevel": level},
+    }
+
+    if compression_method not in compression_configs:
+        valid_options = list(compression_configs.keys())
+        raise ValueError(
+            f"Unsupported compression: {compression_method}. "
+            f"Valid options: {valid_options}"
+        )
+
+    encoding = {}
+    compression_config = compression_configs[compression_method](compression_level)
+
+    for variable_name in xarray_dataset.data_vars:
+        var = xarray_dataset[variable_name]
+
+        # Only compress numeric variables larger than 1KB
+        if (var.dtype.kind in ['f', 'i', 'u'] and  # float, int, uint only
+            var.nbytes > 1024):  # Skip tiny variables
+
+            variable_encoding = compression_config.copy()
+            variable_encoding.update({
+                "shuffle": shuffle,
+                "fletcher32": fletcher32
+            })
+            encoding[str(variable_name)] = variable_encoding
+
+        # For all other variables (strings, small arrays, etc.), 
+        # use empty encoding - let netCDF4 handle them safely
+
+    return encoding
+
+
 def write_netcdf(
     xarray_dataset: xr.Dataset,
     output_path: str,
     compression_method: Optional[str] = "zlib",
-    compression_level: int = 9,
+    compression_level: int = DEFAULT_NETCDF_COMPRESSION_LEVEL,
     shuffle: bool = True,
     fletcher32: bool = False,
     **kwargs,
-) -> str:
+) -> None:
     """Write xarray Dataset to netCDF file with compression and group structure.
 
     Parameters
@@ -369,7 +352,7 @@ def write_netcdf(
     output_path : str
         Full path for output file (including filename).
     compression_method : str, optional, default 'zlib'
-        Compression algorithm ('zlib', 'lzf', 'gzip', 'szip', None).
+        Compression algorithm ('zlib', None).
     compression_level : int, default 9
         Compression level (0-9).
     shuffle : bool, default True
@@ -389,7 +372,7 @@ def write_netcdf(
 
     # Create group mapping from variable names
     variable_names = list(xarray_dataset.data_vars.keys())
-    group_mapping = create_group_mapping(variable_names)
+    group_mapping = _create_group_mapping(variable_names)
 
     # Start writing
     first_write = True
@@ -434,84 +417,22 @@ def write_netcdf(
         # The following writing should use Append mode
         first_write = False
 
-    return output_path
 
-
-def subset_netcdf(
-    input_path: str,
-    output_dir: str,
-    variable_paths: List[str],
-    output_name: Optional[str] = None,
-    variable_renames: Optional[Dict[str, str]] = None,
-    compression_method: Optional[str] = "zlib",
-    compression_level: int = 4,
-    shuffle: bool = True,
-    fletcher32: bool = False,
-    **kwargs,
-) -> str:
-    """Extract variables from netCDF and write to new file in one step.
-
-    Parameters
-    ----------
-    input_path : str
-        Path to input netCDF file.
-    output_dir : str
-        Output directory path.
-    variable_paths : List[str]
-        Variables to extract (e.g., ["PRODUCT/latitude", "PRODUCT/longitude"]).
-    output_name : str, optional
-        Output filename. If None, generates from input filename with _SUB suffix.
-    variable_renames : Dict[str, str], optional
-        Rename variables {old_name: new_name}.
-    compression : str, optional, default 'zlib'
-        Compression algorithm ('zlib', 'lzf', 'gzip', 'szip', None).
-    compression_level : int, default 4
-        Compression level (0-9).
-    shuffle : bool, default True
-        Enable shuffle filter for better compression.
-    fletcher32 : bool, default False
-        Enable Fletcher32 checksum for error detection.
-    **kwargs
-        Additional arguments passed to Dataset.to_netcdf().
-
-    Returns
-    -------
-    str
-        Path to created output file.
-    """
-    # Extract variables from netCDF
-    xarray_dataset = extract_netcdf_as_xarray_dataset(
-        file_path=input_path,
-        variable_paths=variable_paths,
-    )
-
-    # Rename variables if needed
-    if variable_renames:
-        xarray_dataset = rename_xarray_dataset_variables(
-            xarray_dataset=xarray_dataset,
-            variable_renames=variable_renames,
-        )
-
-    # Generate output path
-    output_path = generate_subset_output_path(
-        input_path=input_path,
-        output_dir=output_dir,
-        custom_name=output_name
-    )
-
-    # Write to netCDF file
-    return write_netcdf(
-        xarray_dataset=xarray_dataset,
-        output_path=output_path,
-        compression_method=compression_method,
-        compression_level=compression_level,
-        shuffle=shuffle,
-        fletcher32=fletcher32,
-        **kwargs,
-    )
+def verify_netcdf_file():
+    raise NotImplementedError("verify_netcdf_file is not implemented yet.")
 
 
 # FIXME: This may not handle the NaNs well
+# Do not blindly follow AI
+# Learn from this example and think about what you actually need
+
+# import numpy as np
+# var = 'nitrogendioxide_tropospheric_column'
+# a = ds1[var].values
+# b = ds2[var].values
+# np.array_equal(a, b, equal_nan=True)
+
+
 def compare_netcdf_variables(
     file_a_path: str,
     file_b_path: str,
@@ -662,12 +583,260 @@ def validate_netcdf_subset(
         tolerance=tolerance,
     )
 
-    failed_vars = []
+    failed_variables = []
     for variable_path, variable_results in results.items():
         if not all(variable_results.values()):
-            failed_vars.append(variable_path)
+            failed_variables.append(variable_path)
 
-    if failed_vars:
-        raise ValueError(f"Validation failed for variables: {failed_vars}")
+    if failed_variables:
+        raise ValueError(f"Validation failed for variables: {failed_variables}")
 
     return True
+
+
+def subset_netcdf(
+    input_path: str,
+    output_dir: str,
+    include_variables: Optional[List[str]] = None,
+    drop_variables: Optional[List[str]] = None,
+    output_name: Optional[str] = None,
+    variable_renames: Optional[Dict[str, str]] = None,
+    compression_method: Optional[str] = "zlib",
+    compression_level: int = DEFAULT_NETCDF_COMPRESSION_LEVEL,
+    shuffle: bool = True,
+    fletcher32: bool = False,
+    show_size_reduction: bool = False,
+    warnings_enabled: bool = True,
+    validate_subset: bool = False,
+    delete_original: bool = False,
+    **kwargs,
+) -> None:
+    """Extract or exclude variables from netCDF and write to new file in one step.
+
+    Parameters
+    ----------
+    input_path : str
+        Path to input netCDF file.
+    output_dir : str
+        Output directory path.
+    include_variables : List[str], optional
+        Variables to include in output (e.g., ["PRODUCT/latitude", "PRODUCT/longitude"]).
+        Cannot be used together with drop_variables.
+    drop_variables : List[str], optional
+        Variables to exclude from output.
+        Cannot be used together with include_variables.
+    output_name : str, optional
+        Output filename. If None, generates from input filename with _SUB suffix.
+    variable_renames : Dict[str, str], optional
+        Rename variables {old_name: new_name}.
+    compression_method : str, optional, default 'zlib'
+        Compression algorithm ('zlib', 'lzf', 'gzip', 'szip', None).
+    compression_level : int, default 4
+        Compression level (0-9).
+    shuffle : bool, default True
+        Enable shuffle filter for better compression.
+    fletcher32 : bool, default False
+        Enable Fletcher32 checksum for error detection.
+    warnings : bool, default True
+        Whether to print validation warnings and recommendations.
+    validate_subset : bool, default False
+        Whether to automatically validate the output subset against original.
+    delete_original : bool, default False
+        Whether to delete the original file after successful subsetting.
+    **kwargs
+        Additional arguments passed to Dataset.to_netcdf().
+
+    Returns
+    -------
+    str
+        Path to created output file.
+        
+    Raises
+    ------
+    ValueError
+        If both include_variables and drop_variables are specified.
+        
+    Examples
+    --------
+    >>> # Include only specific variables
+    >>> subset_netcdf("data.nc", "output/", 
+    ...               include_variables=["temperature", "pressure"])
+    >>> 
+    >>> # Exclude specific variables (keep everything else)
+    >>> subset_netcdf("data.nc", "output/",
+    ...               drop_variables=["qa_flags", "processing_metadata"])
+    """
+    # Validate mutually exclusive parameters
+    if include_variables is not None and drop_variables is not None:
+        raise ValueError(
+            "Cannot specify both 'include_variables' and 'drop_variables'."
+            "Use one or the other."
+        )
+
+    # Get all the variables in the file
+    all_variables = list_netcdf_variables(input_path)
+
+    # Determine which variables to extract
+    if drop_variables is not None:
+        # Get all variables, then exclude the ones to drop
+        variable_paths = [var for var in all_variables if var not in drop_variables]
+
+        if warnings and len(variable_paths) == len(all_variables):
+            print(f"Warning: None of the drop_variables {drop_variables} were found in the file")
+
+    elif include_variables is not None:
+        variable_paths = include_variables
+        # Ensure all specified variables exist in the file
+        missing_variables = [var for var in include_variables if var not in all_variables]
+
+        if missing_variables:
+            raise ValueError(
+                f"The following variables were not found in the file: {missing_variables}"
+                )
+
+    else:
+        # If neither specified, raise an error
+        raise ValueError(
+            "Either 'include_variables' or 'drop_variables' must be specified."
+        )
+
+    # Extract variables from netCDF
+    xarray_dataset = extract_netcdf_as_xarray_dataset(
+        file_path=input_path,
+        variable_paths=variable_paths,
+    )
+
+    # Rename variables if needed
+    if variable_renames:
+        xarray_dataset = rename_xarray_dataset_variables(
+            xarray_dataset=xarray_dataset,
+            variable_renames=variable_renames,
+        )
+
+    # Generate output path
+    output_path = generate_subset_output_path(
+        input_path=input_path,
+        output_dir=output_dir,
+        custom_name=output_name,
+    )
+
+    # Write to netCDF file
+    write_netcdf(
+        xarray_dataset=xarray_dataset,
+        output_path=output_path,
+        compression_method=compression_method,
+        compression_level=compression_level,
+        shuffle=shuffle,
+        fletcher32=fletcher32,
+        **kwargs,
+    )
+
+    # For now, assume that it works well with TROPOMI
+
+    # If requested, show the file size reduction
+    # if show_size_reduction:
+    #     report_file_size_reduction(
+    #         input_path=input_path,
+    #         output_path=output_path,
+    #     )
+
+    # # By default, print warnings to encourage validation
+    # # This can be turned off by the user
+    # warn_unvalidated_subset(
+    #     data_format="netCDF",
+    #     validate_subset=validate_subset,
+    #     warnings_enabled=warnings_enabled,
+    # )
+
+    # # If requested, validate the output
+    # if validate_subset:
+    #     try:
+    #         print("🔍 Validating subset...")
+    #         is_valid = validate_netcdf_subset(
+    #             original_path=input_path,
+    #             subset_path=output_path,
+    #             variable_paths=variable_paths,
+    #             exact_match=True
+    #         )
+    #         if is_valid:
+    #             print("✅ Validation passed: Subset data matches original exactly")
+    #         else:
+    #             print("❌ Validation failed: Subset data differs from original")
+    #     except Exception as e:
+    #         print(f"⚠️  Validation error: {e}")
+    #         print("   Manual verification recommended")
+
+    # # If requested, delete the original file
+    # if delete_original:
+    #     try:
+    #         os.remove(input_path)
+    #         if warnings:
+    #             print(f"🗑️  Original file deleted: {input_path}")
+    #     except Exception as e:
+    #         print(f"⚠️  Could not delete original file: {e}")
+
+    # return output_path
+
+
+def split_netcdf_by_dim():
+    raise NotImplementedError("split_netcdf is not implemented yet.")
+
+# Do what is not provided by Xarray
+def merge_netcdf_by_dim():
+    raise NotImplementedError("merge_netcdf is not implemented yet.")
+
+
+# The function should work with multiple shape formats
+def clip_netcdf_to_shape(
+    input_path: str,
+    shape_path: str,  # GeoJSON, Shapefile, etc.
+    output_path: str,
+    variable_paths: Optional[List[str]] = None,
+    **kwargs
+) -> str:
+    """Clip NetCDF data to geographic shape boundary.
+    
+    Extracts only data points that fall within the provided shape,
+    significantly reducing file size for regional studies.
+    
+    Parameters
+    ----------
+    input_path : str
+        Path to input NetCDF file.
+    shape_path : str
+        Path to shape file (GeoJSON, Shapefile, etc.).
+    output_path : str
+        Path for clipped output file.
+    variable_paths : List[str], optional
+        Variables to include. If None, includes all variables.
+    """
+    raise NotImplementedError("clip_netcdf_to_shape is not implemented yet.")
+
+
+def clip_netcdf_to_bbox(
+    input_path: str,
+    bbox: Tuple[float, float, float, float],  # (min_lon, min_lat, max_lon, max_lat)
+    output_path: str,
+    variable_paths: Optional[List[str]] = None,
+    **kwargs
+) -> str:
+    """Clip NetCDF data to bounding box.
+    
+    Simpler alternative to shape clipping for rectangular regions.
+    """
+    raise NotImplementedError("clip_netcdf_to_bbox is not implemented yet.")
+
+
+def sample_netcdf_at_points(
+    input_path: str,
+    points: List[Tuple[float, float]],  # [(lon, lat), ...]
+    output_path: str,
+    variable_paths: Optional[List[str]] = None,
+    **kwargs
+) -> str:
+    """Extract NetCDF data at specific point locations.
+    
+    Useful for validation against ground stations or creating
+    time series at specific locations.
+    """
+    raise NotImplementedError("sample_netcdf_at_points is not implemented yet.")

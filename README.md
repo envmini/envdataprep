@@ -42,7 +42,7 @@ edp.subset_netcdf(
     output_dir,
     variable_paths,
     output_name="example_extracted_data.nc",
-    compression='zlib',
+    compression_method='zlib',
     compression_level=9,
 )
 ```

@@ -8,13 +8,13 @@ import envdataprep as edp
 
 # Compression settings
 COMPRESSION_METHOD = 'zlib'
-COMPRESSION_LEVEL = 9
+COMPRESSION_LEVEL = 4
 
 # List of target data fields
 tropomi_no2_data_fields = [
     'PRODUCT/latitude',
     'PRODUCT/longitude',
-    'PRODUCT/time_utc',
+    'PRODUCT/time',
     'PRODUCT/qa_value',
     'PRODUCT/nitrogendioxide_tropospheric_column',
     'PRODUCT/nitrogendioxide_tropospheric_column_precision',
