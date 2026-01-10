@@ -16,6 +16,7 @@ Utility functions are provided to convert between netCDF4 and xarray
 objects where appropriate.
 """
 
+# TODO: Improve the docstrings, comments and naming conventions throughout
 
 import os
 from collections import defaultdict
@@ -38,11 +39,9 @@ from ..utils.warnings import warn_unvalidated_subset
 # This is the optimal compression level
 # Considering both reduced file size and processing time
 # This was also recommended by AI
-# before conducting any independent experiments
 DEFAULT_NETCDF_COMPRESSION_LEVEL = 4
 
 
-# TODO: Maybe re-think about the naming conventions
 def _collect_netcdf_variable_paths(
     group: nc.Dataset, path_prefix: str = ""
 ) -> List[str]:
@@ -103,7 +102,6 @@ def list_netcdf_variables(file_path: str) -> List[str]:
         return _collect_netcdf_variable_paths(group=ds)
 
 
-
 def netcdf_variable_to_xarray_dataarray(
     nc_variable: nc.Variable,
     variable_path: str,
@@ -120,32 +118,36 @@ def netcdf_variable_to_xarray_dataarray(
         The netCDF4 variable to convert
     variable_path : str
         Path/name for the variable
-    convert_fill_to_nan : bool, default False
-        If True, converts _FillValue to NaN. If False, preserves original fill values.
     """
-    # Get attributes
-    attrs = {k: nc_variable.getncattr(k) for k in nc_variable.ncattrs()}
 
-    # Control automatic masking and scaling
-    # IMPORTANT: The design is set False
-    # set_auto_scale(False) only disables
-    # scale_factor and add_offset, but not _FillValue
-    # Xarray follows the CF conventions for netCDF files
-    # By default, it will automatically detect "_FillValue"
-    # in the netCDF data and convert filled data to NaNs
-    # To turn off this conversion
-    # set_auto_maskandscale(False) should be used
-    # In the design of EnvDataPrep
-    # We prioritize preserving the original data
-    # So here it is hardcoded to be False
-    # Xarray should not do the conversion for those
-    # netCDF files which do not follow the CF conventions
+    # Get all attributes from the raw data
+    attributes = {k: nc_variable.getncattr(k) for k in nc_variable.ncattrs()}
+
+    # Important step before convertting netCDF4.Variable to xarray.DataArray
+
+    # Turn off any automatic masking, scaling or other conversions
+    # If there are attributes like "scale_factor" for a certain data field
+    # Xarray will automatically alter its values without any warnings
+    # Also, Xarray follows the CF conventions for netCDF files
+    # It will automatically detect "_FillValue"
+    # and convert filled values to NaNs
+    # For netCDF files that do not follow the CF conventions
+    # Xarray should not be able to automatically
+    # convert filled values to NaNs
+
+    # "set_auto_scale(False)" only disables
+    # "scale_factor" and "add_offset"
+    # but not the conversion of "_FillValue" to NaNs
+    # To preserve the original data
+    # use "set_auto_maskandscale(False)"
     nc_variable.set_auto_maskandscale(False)
+
+    # Return the subset of the preserved raw data
 
     return xr.DataArray(
         data=nc_variable[:],
         dims=nc_variable.dimensions,
-        attrs=attrs,
+        attrs=attributes,
         name=variable_path,
     )
 
@@ -191,6 +193,7 @@ def extract_netcdf_as_xarray_dataset(
     return xarray_dataset
 
 
+# TODO: Does this work for xr.DataArrays as well?
 def rename_xarray_dataset_variables(
     xarray_dataset: xr.Dataset, variable_renames: Dict[str, str]
 ) -> xr.Dataset:
@@ -328,12 +331,14 @@ def _create_encoding(
             })
             encoding[str(variable_name)] = variable_encoding
 
-        # For all other variables (strings, small arrays, etc.), 
+        # For all other variables (strings, small arrays, etc.),
         # use empty encoding - let netCDF4 handle them safely
 
     return encoding
 
 
+# TODO: Does this work for xr.DataArray as well?
+# Or, maybe no need to allow that
 def write_netcdf(
     xarray_dataset: xr.Dataset,
     output_path: str,
@@ -414,7 +419,7 @@ def write_netcdf(
         )
 
         # After writing out the first sub_dataset
-        # The following writing should use Append mode
+        # The following writing should use the Append mode
         first_write = False
 
 
@@ -681,7 +686,7 @@ def subset_netcdf(
         # Get all variables, then exclude the ones to drop
         variable_paths = [var for var in all_variables if var not in drop_variables]
 
-        if warnings and len(variable_paths) == len(all_variables):
+        if warnings_enabled and len(variable_paths) == len(all_variables):
             print(f"Warning: None of the drop_variables {drop_variables} were found in the file")
 
     elif include_variables is not None:
@@ -689,6 +694,8 @@ def subset_netcdf(
         # Ensure all specified variables exist in the file
         missing_variables = [var for var in include_variables if var not in all_variables]
 
+        # FIXME: This may be too hard, sometimes, the subsets may not be the same?
+        # Make this more flexible? Maybe, don't break the programme?
         if missing_variables:
             raise ValueError(
                 f"The following variables were not found in the file: {missing_variables}"
