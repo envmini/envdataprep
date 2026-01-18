@@ -1,15 +1,22 @@
 # envdataprep/core/parallel.py
-"""Parallel processing utilities for envdataprep."""
+"""
+Parallel processing utilities for envdataprep.
+
+For a high-performance design, each main API should
+be able to called in parellel to process massive files together.
+"""
+
 
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, List, Dict, Any, Optional, Tuple
 from functools import partial
 
-# import tqdm
+from tqdm import tqdm
 
 
-# TODO: Re-think about the parellel function
+# TODO: The current version works
+# But re-think about the parellel function
 # How should all the functions be parellelized? Using Ray or not?
 # Use this chance to learn threading, multiprocessing
 

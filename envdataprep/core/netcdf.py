@@ -847,3 +847,5 @@ def sample_netcdf_at_points(
     time series at specific locations.
     """
     raise NotImplementedError("sample_netcdf_at_points is not implemented yet.")
+
+

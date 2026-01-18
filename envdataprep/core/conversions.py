@@ -188,3 +188,11 @@
 #         raise NotImplementedError(f"Conversion from {source_format} to {target_format} not yet implemented")
     
 #     return converter(input_path, output_path, **kwargs)
+
+
+# Think about if the variables have different dimensions
+# How will this be achieved
+# The difference from this function from Xarray is built on
+# the extract_netcdf_as_xarray_dataset function
+# So you can also convert nested netcdfs to dfs
+# def netcdf_to_df
