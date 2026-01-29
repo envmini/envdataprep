@@ -18,6 +18,9 @@ objects where appropriate.
 
 # TODO: Improve the docstrings, comments and naming conventions throughout
 
+# FIXME: When viewing the subset and original file in NASA Panoply,
+# The long names for the subset file and for the first extracted group are different from the original
+
 import os
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
@@ -29,10 +32,7 @@ import xarray as xr
 from ..utils.io import (
     handle_file_errors,
     generate_subset_output_path,
-    report_file_size_reduction,
 )
-
-from ..utils.warnings import warn_unvalidated_subset
 
 
 # Based on experiments using the TROPOMI satellite product
@@ -610,12 +610,8 @@ def subset_netcdf(
     compression_level: int = DEFAULT_NETCDF_COMPRESSION_LEVEL,
     shuffle: bool = True,
     fletcher32: bool = False,
-    show_size_reduction: bool = False,
-    warnings_enabled: bool = True,
-    validate_subset: bool = False,
-    delete_original: bool = False,
     **kwargs,
-) -> None:
+) -> str:
     """Extract or exclude variables from netCDF and write to new file in one step.
 
     Parameters
@@ -642,12 +638,6 @@ def subset_netcdf(
         Enable shuffle filter for better compression.
     fletcher32 : bool, default False
         Enable Fletcher32 checksum for error detection.
-    warnings : bool, default True
-        Whether to print validation warnings and recommendations.
-    validate_subset : bool, default False
-        Whether to automatically validate the output subset against original.
-    delete_original : bool, default False
-        Whether to delete the original file after successful subsetting.
     **kwargs
         Additional arguments passed to Dataset.to_netcdf().
 
@@ -738,51 +728,8 @@ def subset_netcdf(
         **kwargs,
     )
 
-    # For now, assume that it works well with TROPOMI
-
-    # If requested, show the file size reduction
-    # if show_size_reduction:
-    #     report_file_size_reduction(
-    #         input_path=input_path,
-    #         output_path=output_path,
-    #     )
-
-    # # By default, print warnings to encourage validation
-    # # This can be turned off by the user
-    # warn_unvalidated_subset(
-    #     data_format="netCDF",
-    #     validate_subset=validate_subset,
-    #     warnings_enabled=warnings_enabled,
-    # )
-
-    # # If requested, validate the output
-    # if validate_subset:
-    #     try:
-    #         print("🔍 Validating subset...")
-    #         is_valid = validate_netcdf_subset(
-    #             original_path=input_path,
-    #             subset_path=output_path,
-    #             variable_paths=variable_paths,
-    #             exact_match=True
-    #         )
-    #         if is_valid:
-    #             print("✅ Validation passed: Subset data matches original exactly")
-    #         else:
-    #             print("❌ Validation failed: Subset data differs from original")
-    #     except Exception as e:
-    #         print(f"⚠️  Validation error: {e}")
-    #         print("   Manual verification recommended")
-
-    # # If requested, delete the original file
-    # if delete_original:
-    #     try:
-    #         os.remove(input_path)
-    #         if warnings:
-    #             print(f"🗑️  Original file deleted: {input_path}")
-    #     except Exception as e:
-    #         print(f"⚠️  Could not delete original file: {e}")
-
-    # return output_path
+    
+    return output_path
 
 
 def split_netcdf_by_dim():
