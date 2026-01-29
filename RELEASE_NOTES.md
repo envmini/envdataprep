@@ -1,15 +1,30 @@
-# EnvDataPrep v0.1.0 Release Notes
+# EnvDataPrep Release Notes
 
-## 🎉 First PyPI Release!
+## 🔧 v0.1.1 (Latest)
 
-This is the initial release of EnvDataPrep, securing the package name on PyPI.
+### Bug Fixes
+- **Fixed import error**: Added `tqdm` to required dependencies
+- **Improved installation**: No longer need `pip install envdataprep[parallel]`
+- **Better user experience**: Package works immediately after `pip install envdataprep`
 
-## ✅ What's Included
+### Installation
+```bash
+pip install envdataprep
+```
+
+---
+
+## 🎉 v0.1.0 (Initial Release)
+
+First PyPI release securing the package name.
 
 ### Core Functionality
 - **NetCDF Processing**: Complete netCDF file subsetting and variable extraction
 - **Parallel Processing**: Multi-core processing for batch operations
 - **Data Preservation**: Maintains original data integrity with configurable fill value handling
+
+### Known Issues
+- Requires `pip install envdataprep[parallel]` or separate `pip install tqdm` (fixed in v0.1.1)
 
 ### Key Features
 - `list_netcdf_variables()` - Discover variables in netCDF files

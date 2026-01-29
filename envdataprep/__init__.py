@@ -18,7 +18,7 @@ from .utils.io import handle_file_errors
 
 
 # Version Number
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 # Automatically define public APIs when all are imported
