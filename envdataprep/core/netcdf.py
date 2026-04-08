@@ -379,10 +379,19 @@ def write_netcdf(
     variable_names = list(xarray_dataset.data_vars.keys())
     group_mapping = _create_group_mapping(variable_names)
 
+    # CRITICAL: Ensure root group exists to preserve global attributes
+    # Even if there are no root-level variables, we need to write global attrs
+    if "" not in group_mapping:
+        group_mapping[""] = []  # Empty list = no variables, but will write attrs
+
+    # IMPORTANT: Write root group first to preserve global attributes
+    # Sort so that empty string (root) comes first
+    sorted_groups = sorted(group_mapping.items(), key=lambda x: (x[0] != "", x[0]))
+
     # Start writing
     first_write = True
 
-    for group_path, variable_names in group_mapping.items():
+    for group_path, variable_names in sorted_groups:
         # Get subset of variables for this group
         group_variables = {
             name: xarray_dataset[name]
@@ -390,13 +399,15 @@ def write_netcdf(
             if name in xarray_dataset
         }
 
-        if not group_variables:
-            continue
+        # Only use global attributes for root group (empty group_path)
+        # For subgroups, use empty attributes to avoid overwriting
+        group_attrs = xarray_dataset.attrs if group_path == "" else {}
 
+        # Create sub_dataset even if no variables (to write attributes)
         sub_dataset = xr.Dataset(
             group_variables,
             coords=xarray_dataset.coords,
-            attrs=xarray_dataset.attrs,
+            attrs=group_attrs,
         )
 
         # Clean variable names for this group (remove group prefix)
@@ -728,7 +739,6 @@ def subset_netcdf(
         **kwargs,
     )
 
-    
     return output_path
 
 
@@ -794,5 +804,3 @@ def sample_netcdf_at_points(
     time series at specific locations.
     """
     raise NotImplementedError("sample_netcdf_at_points is not implemented yet.")
-
-
