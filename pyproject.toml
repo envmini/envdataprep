@@ -24,7 +24,7 @@ keywords = [
     "preprocessing",
     "satellites",
     "models",
-    "renalysis",
+    "reanalysis",
     "forecasts",
 ]
 classifiers = [

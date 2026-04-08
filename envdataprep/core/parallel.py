@@ -1,113 +1,20 @@
-# envdataprep/core/parallel.py
 """
 Parallel processing utilities for envdataprep.
 
-For a high-performance design, each main API should
-be able to called in parellel to process massive files together.
+Provides batch_process for parallelizing any single-item function
+using multiprocessing. Most users should use the @enable_parallel
+decorator instead of calling batch_process directly.
 """
 
-
 import os
+from typing import Callable, Any
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import Callable, List, Dict, Any, Optional, Tuple
 from functools import partial
 
 from tqdm import tqdm
 
 
-# TODO: The current version works
-# But re-think about the parellel function
-# How should all the functions be parellelized? Using Ray or not?
-# Use this chance to learn threading, multiprocessing
-
-
-def _process_single_file(file_path, process_func, func_kwargs):
-    """Wrapper to handle exceptions for single file processing."""
-    try:
-        result = process_func(file_path, **func_kwargs)
-        return file_path, True, result, None
-    except Exception as e:
-        return file_path, False, None, str(e)
-
-
-def process_files_parallel(
-    files: List[str],
-    process_func: Callable,
-    func_kwargs: Optional[Dict[str, Any]] = None,
-    max_workers: Optional[int] = None,
-    show_progress: bool = True,
-) -> Tuple[List[str], List[Tuple[str, str]]]:
-    """Process multiple files in parallel.
-    
-    Parameters
-    ----------
-    files : List[str]
-        List of file paths to process.
-    process_func : Callable
-        Function to apply to each file. Must accept file_path as first argument.
-    func_kwargs : Dict[str, Any], optional
-        Additional keyword arguments to pass to process_func.
-    max_workers : int, optional
-        Number of parallel workers. If None, uses os.cpu_count().
-    show_progress : bool, default True
-        Whether to show progress bar (requires tqdm).
-    
-    Returns
-    -------
-    Tuple[List[str], List[Tuple[str, str]]]
-        (successful_files, failed_files_with_errors)
-    
-    Examples
-    --------
-    >>> from envdataprep.core.parallel import process_files_parallel
-    >>> from envdataprep.core.io.netcdf import extract_and_write_netcdf
-    >>> 
-    >>> files = ["file1.nc", "file2.nc", "file3.nc"]
-    >>> kwargs = {
-    ...     "output_dir": "output/",
-    ...     "variable_paths": ["PRODUCT/latitude", "PRODUCT/longitude"],
-    ...     "compression": "zlib",
-    ...     "compression_level": 9
-    ... }
-    >>> 
-    >>> successful, failed = process_files_parallel(
-    ...     files, extract_and_write_netcdf, func_kwargs=kwargs, max_workers=4
-    ... )
-    """
-    func_kwargs = func_kwargs or {}
-    max_workers = max_workers or os.cpu_count()
-
-    successful = []
-    failed = []
-
-    # Use partial to bind arguments
-    worker_func = partial(_process_single_file, process_func=process_func, func_kwargs=func_kwargs)
-
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(worker_func, f): f for f in files}
-
-        if show_progress:
-            try:
-                iterator = tqdm(as_completed(futures), total=len(files), desc="Processing")
-            except ImportError:
-                print("Install tqdm for progress bar: pip install tqdm")
-                iterator = as_completed(futures)
-        else:
-            iterator = as_completed(futures)
-
-        for future in iterator:
-            file_path, success, result, error = future.result()
-            if success:
-                successful.append(file_path)
-            else:
-                failed.append((file_path, error))
-                if show_progress:
-                    print(f"\nFailed: {os.path.basename(file_path)} - {error}")
-
-    return successful, failed
-
-
-def _process_single_item(item, process_func, func_kwargs):
+def _process_single_item(item: Any, process_func: Callable[..., Any], func_kwargs: dict[str, Any] | None = None):
     """Wrapper to handle exceptions for single item processing."""
     try:
         result = process_func(item, **func_kwargs)
@@ -117,52 +24,69 @@ def _process_single_item(item, process_func, func_kwargs):
 
 
 def batch_process(
-    items: List[Any],
-    process_func: Callable,
-    func_kwargs: Optional[Dict[str, Any]] = None,
-    max_workers: Optional[int] = None,
+    items: list[Any],
+    process_func: Callable[..., Any],
+    func_kwargs: dict[str, Any] | None = None,
+    max_workers: int | None = None,
     show_progress: bool = True,
-) -> Tuple[List[Any], List[Tuple[Any, str]]]:
-    """Process a list of items in parallel (generic version).
-    
+) -> tuple[list[Any], list[tuple[Any, str]]]:
+    """Process a list of items in parallel using multiprocessing.
+
     Parameters
     ----------
-    items : List[Any]
-        List of items to process.
+    items : list[Any]
+        List of items to process (e.g., file paths).
     process_func : Callable
         Function to apply to each item. Must accept item as first argument.
-    func_kwargs : Dict[str, Any], optional
+    func_kwargs : dict[str, Any], optional
         Additional keyword arguments to pass to process_func.
     max_workers : int, optional
         Number of parallel workers. If None, uses os.cpu_count().
+        On HPC clusters, set this to match your allocated CPUs
+        (e.g., via SLURM_CPUS_PER_TASK, PBS_NP).
     show_progress : bool, default True
-        Whether to show progress bar (requires tqdm).
-    
+        Whether to show a tqdm progress bar.
+
     Returns
     -------
-    Tuple[List[Any], List[Tuple[Any, str]]]
+    tuple[list[Any], list[tuple[Any, str]]]
         (successful_items, failed_items_with_errors)
+
+    Examples
+    --------
+    >>> from envdataprep.core.parallel import batch_process
+    >>> from envdataprep.core.netcdf import subset_netcdf
+    >>>
+    >>> files = ["file1.nc", "file2.nc", "file3.nc"]
+    >>> kwargs = {
+    ...     "output_dir": "output/",
+    ...     "include_vars": ["PRODUCT/latitude", "PRODUCT/longitude"],
+    ... }
+    >>>
+    >>> successful, failed = batch_process(
+    ...     files, subset_netcdf, func_kwargs=kwargs, max_workers=4
+    ... )
     """
     func_kwargs = func_kwargs or {}
-    max_workers = max_workers or os.cpu_count()
+    max_workers = max_workers or os.cpu_count() or 1
 
     successful = []
     failed = []
 
-    # Use partial to bind arguments
-    worker_func = partial(_process_single_item, process_func=process_func, func_kwargs=func_kwargs)
+    worker_func = partial(
+        _process_single_item,
+        process_func=process_func,
+        func_kwargs=func_kwargs,
+    )
 
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(worker_func, item): item for item in items}
 
+        iterator = as_completed(futures)
         if show_progress:
-            try:
-                iterator = tqdm(as_completed(futures), total=len(items), desc="Processing")
-            except ImportError:
-                print("Install tqdm for progress bar: pip install tqdm")
-                iterator = as_completed(futures)
-        else:
-            iterator = as_completed(futures)
+            iterator = tqdm(
+                iterator, total=len(items), desc="Processing"
+            )
 
         for future in iterator:
             item, success, result, error = future.result()

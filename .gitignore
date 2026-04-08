@@ -62,6 +62,8 @@ Thumbs.db
 # Development
 .pre-commit-config.yaml.bak
 
-# Scratch
+# Scratch folder
 scratch/
 
+# Planning folder
+plan/
