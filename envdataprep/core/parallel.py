@@ -1,98 +1,121 @@
 """
 Parallel processing utilities for envdataprep.
 
-Provides batch_process for parallelizing any single-item function
-using multiprocessing. Most users should use the @enable_parallel
-decorator instead of calling batch_process directly.
+``map_items`` runs a single-item function over many items. Use ``workers > 1``
+for process-based parallelism; otherwise execution is sequential in-process.
+
+Most users should rely on ``@enable_parallel`` on format helpers rather than
+calling ``map_items`` / ``batch_process`` directly.
 """
 
-import os
-from typing import Callable, Any
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import partial
+from typing import Any
 
 from tqdm import tqdm
 
 
-def _process_single_item(item: Any, process_func: Callable[..., Any], func_kwargs: dict[str, Any] | None = None):
-    """Wrapper to handle exceptions for single item processing."""
+def _run_one_item(
+    payload: tuple[int, Any, Callable[..., Any], dict[str, Any]],
+) -> tuple[int, Any, Any | None, str | None]:
+    """Execute ``process_func(item, **func_kwargs)``; used in worker processes."""
+    idx, item, process_func, func_kwargs = payload
     try:
         result = process_func(item, **func_kwargs)
-        return item, True, result, None
+        return idx, item, result, None
     except Exception as e:
-        return item, False, None, str(e)
+        return idx, item, None, str(e)
 
 
-def batch_process(
+def map_items(
     items: list[Any],
     process_func: Callable[..., Any],
     func_kwargs: dict[str, Any] | None = None,
-    max_workers: int | None = None,
+    *,
+    workers: int | None = None,
     show_progress: bool = True,
-) -> tuple[list[Any], list[tuple[Any, str]]]:
-    """Process a list of items in parallel using multiprocessing.
+) -> list[tuple[Any, Any | None, str | None]]:
+    """Run ``process_func`` on each item; preserve input order in the result.
 
     Parameters
     ----------
     items : list[Any]
-        List of items to process (e.g., file paths).
+        Items to process (e.g. file paths), in order.
     process_func : Callable
-        Function to apply to each item. Must accept item as first argument.
+        Callable taking ``item`` as the first positional argument.
     func_kwargs : dict[str, Any], optional
-        Additional keyword arguments to pass to process_func.
-    max_workers : int, optional
-        Number of parallel workers. If None, uses os.cpu_count().
-        On HPC clusters, set this to match your allocated CPUs
-        (e.g., via SLURM_CPUS_PER_TASK, PBS_NP).
+        Extra keyword arguments passed to ``process_func`` for every item.
+    workers : int, optional
+        If ``None`` or ``1``, run sequentially in the current process.
+        If greater than ``1``, use a :class:`ProcessPoolExecutor` with that
+        many workers. On HPC, set this to match allocated CPUs
+        (e.g. ``SLURM_CPUS_PER_TASK``).
     show_progress : bool, default True
-        Whether to show a tqdm progress bar.
+        Show a tqdm bar when ``workers > 1``.
 
     Returns
     -------
-    tuple[list[Any], list[tuple[Any, str]]]
-        (successful_items, failed_items_with_errors)
+    list[tuple[Any, Any | None, str | None]]
+        One row per input item, in the same order as ``items``.
+        Each row is ``(item, result, error)``.
+        If ``error`` is ``None``, the call succeeded and ``result`` is the
+        return value (which may be ``False`` for boolean checks).
+        If ``error`` is set, ``result`` is ``None`` and ``error`` is a message.
 
     Examples
     --------
-    >>> from envdataprep.core.parallel import batch_process
+    >>> from envdataprep.core.parallel import map_items
     >>> from envdataprep.core.netcdf import subset_netcdf
     >>>
-    >>> files = ["file1.nc", "file2.nc", "file3.nc"]
-    >>> kwargs = {
-    ...     "output_dir": "output/",
-    ...     "include_vars": ["PRODUCT/latitude", "PRODUCT/longitude"],
-    ... }
-    >>>
-    >>> successful, failed = batch_process(
-    ...     files, subset_netcdf, func_kwargs=kwargs, max_workers=4
+    >>> files = ["a.nc", "b.nc"]
+    >>> rows = map_items(
+    ...     files,
+    ...     subset_netcdf,
+    ...     {"output_dir": "out/", "include_vars": ["t"]},
+    ...     workers=2,
     ... )
     """
-    func_kwargs = func_kwargs or {}
-    max_workers = max_workers or os.cpu_count() or 1
+    # Ensure func_kwargs is a dictionary
+    if func_kwargs is None:
+        func_kwargs = {}
 
-    successful = []
-    failed = []
+    # Get the number of items
+    n = len(items)
 
-    worker_func = partial(
-        _process_single_item,
-        process_func=process_func,
-        func_kwargs=func_kwargs,
-    )
+    # Return empty list if there are no items
+    if n == 0:
+        return []
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(worker_func, item): item for item in items}
+    # Run sequentially if workers is None or <= 1
+    if workers is None or workers <= 1:
+        rows: list[tuple[Any, Any | None, str | None]] = []
+        for item in items:
+            try:
+                r = process_func(item, **func_kwargs)
+                rows.append((item, r, None))
+            except Exception as e:
+                rows.append((item, None, str(e)))
+        return rows
 
-        iterator = as_completed(futures)
+    # Run in parallel if workers > 1
+    workers = min(workers, n)
+    payloads = [
+        (i, item, process_func, func_kwargs) for i, item in enumerate(items)
+    ]
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(_run_one_item, p): p[0] for p in payloads
+        }
+        iterator = as_completed(future_map)
         if show_progress:
             iterator = tqdm(
-                iterator, total=len(items), desc="Processing"
+                iterator, total=n, desc="Processing"
             )
 
-        for future in iterator:
-            item, success, result, error = future.result()
-            if success:
-                successful.append(item)
-            else:
-                failed.append((item, error))
+        by_idx: dict[int, tuple[Any, Any | None, str | None]] = {}
+        for fut in iterator:
+            idx, item, result, err = fut.result()
+            by_idx[idx] = (item, result, err)
 
-    return successful, failed
+    return [by_idx[i] for i in range(n)]

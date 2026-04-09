@@ -5,7 +5,7 @@ from collections import defaultdict
 
 import xarray as xr
 
-from ._helpers import DEFAULT_NETCDF_COMPLEVEL
+from ...utils.constants import DEFAULT_NETCDF_COMPLEVEL
 
 
 def rename_dataset_vars(
@@ -181,7 +181,12 @@ def write_netcdf(
         }
         group_attrs = dataset.attrs if group_path == "" else {}
 
-        sub_ds = xr.Dataset(group_vars, coords=dataset.coords, attrs=group_attrs)
+        sub_ds = xr.Dataset(
+            data_vars=group_vars,
+            coords=dataset.coords,
+            attrs=group_attrs,
+        )
+
         sub_ds = _clean_group_var_names(sub_ds, group_path)
 
         encoding = _create_encoding(

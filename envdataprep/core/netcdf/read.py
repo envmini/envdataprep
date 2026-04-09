@@ -67,9 +67,11 @@ def list_netcdf_vars(input_path: str) -> list[str]:
 @enable_parallel
 def check_netcdf(
     input_path: str,
+    deep: bool = False,
+    require_vars: bool = True,
     workers: int | None = None,
     show_progress: bool = True,
-) -> bool:
+) -> bool | list[tuple[str, bool | None, str | None]]:
     """Check whether a netCDF file can be opened and read.
 
     Useful for detecting corrupted or incomplete downloads
@@ -77,21 +79,37 @@ def check_netcdf(
 
     Parameters
     ----------
-    input_path : str or list[str]
-        Path(s) to netCDF file(s).
+    input_path : str or list[str] or tuple[str, ...]
+        One path, or a sequence of paths to check.
+    deep : bool, default False
+        If False, only verify that the file opens. If True, walk the full
+        group tree (via :func:`list_netcdf_vars`).
+    require_vars : bool, default True
+        Only applies when ``deep`` is True. If True, require at least one
+        variable path; if False, a successfully opened file passes even
+        with zero variables.
     workers : int, optional
-        Number of parallel workers (multi-file only).
+        If greater than 1, run checks in parallel (multi-path only).
     show_progress : bool, default True
-        Whether to show progress bar (multi-file only).
+        Progress bar when ``workers > 1``.
 
     Returns
     -------
     bool
-        True if file is readable, False otherwise.
+        Single path: whether the check passed.
+    list[tuple[str, bool | None, str | None]]
+        Multiple paths: one row per path, in order — ``(path, result, error)``.
+        ``error`` is None on success; ``result`` is the boolean outcome.
     """
     try:
+        if not deep:
+            with nc.Dataset(input_path, "r"):
+                pass
+            return True
         nc_vars = list_netcdf_vars(input_path)
-        return len(nc_vars) > 0
+        if require_vars:
+            return len(nc_vars) > 0
+        return True
     except Exception as e:
         warnings.warn(
             f"Could not check netCDF file: {input_path} - {e}"

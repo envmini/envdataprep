@@ -1,199 +1,60 @@
 """Subsetting, comparison, and validation for netCDF files."""
 
-import warnings
-
 import netCDF4 as nc
 import numpy as np
 
-from ...utils.decorators import enable_parallel
-from ...utils.io import build_output_path
-from ._helpers import _collect_netcdf_var_paths, DEFAULT_NETCDF_COMPLEVEL
 from .read import list_netcdf_vars, extract_netcdf_as_dataset
 from .write import rename_dataset_vars, write_netcdf
 
-
-# FIXME: May not handle NaNs well in all cases
-# np.array_equal does not treat NaNs as equal by default
-
-
-def compare_netcdf_vars(
-    input_path_a: str,
-    input_path_b: str,
-    var_paths: list[str] | None = None,
-    exact_match: bool = True,
-    tolerance: float = 1e-10,
-    compare_attrs: bool = True,
-) -> dict[str, dict[str, bool]]:
-    """Compare shared variables between two netCDF files.
-
-    Parameters
-    ----------
-    input_path_a : str
-        Path to first netCDF file.
-    input_path_b : str
-        Path to second netCDF file.
-    var_paths : list[str], optional
-        Specific variables to compare. If None, compares all shared variables.
-    exact_match : bool, default True
-        If True, requires exact binary equality (no tolerance).
-        If False, uses numerical tolerance for floating point comparisons.
-    tolerance : float, default 1e-10
-        Numerical tolerance (only used if exact_match=False).
-    compare_attrs : bool, default True
-        Whether to compare variable attributes.
-
-    Returns
-    -------
-    dict[str, dict[str, bool]]
-        Results for each variable:
-        {"PRODUCT/latitude": {"data_match": True, "attrs_match": True}, ...}
-
-    Examples
-    --------
-    >>> results = compare_netcdf_vars("original.nc", "subset.nc")
-    >>>
-    >>> results = compare_netcdf_vars(
-    ...     "file1.nc", "file2.nc", exact_match=False, tolerance=1e-6
-    ... )
-    """
-    results = {}
-
-    with nc.Dataset(input_path_a, "r") as ds_a, nc.Dataset(input_path_b, "r") as ds_b:
-        if var_paths is None:
-            vars_a = set(_collect_netcdf_var_paths(ds_a))
-            vars_b = set(_collect_netcdf_var_paths(ds_b))
-            var_paths = list(vars_a & vars_b)
-
-        for var_path in var_paths:
-            var_result = {"data_match": False, "attrs_match": False}
-
-            try:
-                var_a = ds_a[var_path]
-                var_b = ds_b[var_path]
-
-                if exact_match:
-                    var_result["data_match"] = np.array_equal(
-                        var_a[:], var_b[:]
-                    )
-                else:
-                    try:
-                        var_result["data_match"] = np.allclose(
-                            var_a[:], var_b[:],
-                            rtol=tolerance, atol=tolerance,
-                            equal_nan=True,
-                        )
-                    except (ValueError, TypeError):
-                        var_result["data_match"] = np.array_equal(
-                            var_a[:], var_b[:], equal_nan=True
-                        )
-
-                if compare_attrs:
-                    attrs_a = {k: var_a.getncattr(k) for k in var_a.ncattrs()}
-                    attrs_b = {k: var_b.getncattr(k) for k in var_b.ncattrs()}
-                    var_result["attrs_match"] = attrs_a == attrs_b
-                else:
-                    var_result["attrs_match"] = True
-
-            except KeyError:
-                warnings.warn(
-                    f"Variable '{var_path}' not found in one of the files"
-                )
-                continue
-
-            results[var_path] = var_result
-
-    return results
+from ...utils.decorators import enable_parallel
+from ...utils.io import build_subset_path
+from ...utils.constants import DEFAULT_NETCDF_COMPLEVEL
 
 
-def validate_netcdf_subset(
-    original_path: str,
-    subset_path: str,
-    var_paths: list[str] | None = None,
-    exact_match: bool = True,
-    tolerance: float = 1e-10,
-) -> bool:
-    """Validate that netCDF subset preserves data values exactly.
+# TODO: re-think about the logic of the @enable_parallel decorator
+# one alternative way is to have a separate function for single file processing
+# and a separate function for multi-file processing
+# then wrap them under a single public api
+# so the user sees the same interface
+# the code will be more readable, but you will have more code to maintain
 
-    Convenience wrapper around compare_netcdf_vars for subset validation.
-
-    Parameters
-    ----------
-    original_path : str
-        Path to original netCDF file.
-    subset_path : str
-        Path to subset netCDF file.
-    var_paths : list[str], optional
-        Variables that were extracted in the subset.
-    exact_match : bool, default True
-        If True, requires exact binary equality.
-    tolerance : float, default 1e-10
-        Numerical tolerance (only used if exact_match=False).
-
-    Returns
-    -------
-    bool
-        True if all variables match exactly.
-
-    Raises
-    ------
-    ValueError
-        If any variables don't match.
-
-    Examples
-    --------
-    >>> validate_netcdf_subset(
-    ...     "original.nc", "subset.nc",
-    ...     ["PRODUCT/latitude", "PRODUCT/longitude"]
-    ... )
-    True
-    """
-    results = compare_netcdf_vars(
-        input_path_a=original_path,
-        input_path_b=subset_path,
-        var_paths=var_paths,
-        exact_match=exact_match,
-        tolerance=tolerance,
-    )
-
-    failed = [vp for vp, vr in results.items() if not all(vr.values())]
-    if failed:
-        raise ValueError(f"Validation failed for variables: {failed}")
-
-    return True
-
+# Or, just go deeper into this decorator, understand the logic of the decorator
+# and evaluate if this is the best way to handle multi-file processing
+# for this entire package
 
 @enable_parallel
 def subset_netcdf(
     input_path: str,
-    output_dir: str,
-    include_vars: list[str] | None = None,
+    output_dir: str | None = None,
+    keep_vars: list[str] | None = None,
     drop_vars: list[str] | None = None,
     output_name: str | None = None,
+    use_input_name: bool = False,
+    suffix: str = "_SUB",
     var_renames: dict[str, str] | None = None,
     compression: str | None = "zlib",
     complevel: int = DEFAULT_NETCDF_COMPLEVEL,
     shuffle: bool = True,
     fletcher32: bool = False,
     validate: bool = False,
-    warnings_enabled: bool = True,
     workers: int | None = None,
     show_progress: bool = True,
     **kwargs,
-) -> str:
+) -> None:
     """Extract or exclude variables from netCDF and write to new file.
 
     Parameters
     ----------
-    input_path : str or list[str]
+    input_path : str or list[str] or tuple[str, ...]
         Path(s) to input netCDF file(s).
     output_dir : str
         Output directory path.
-    include_vars : list[str], optional
+    keep_vars : list[str], optional
         Variables to include in output (e.g., ["PRODUCT/latitude"]).
         Cannot be used together with drop_vars.
     drop_vars : list[str], optional
         Variables to exclude from output.
-        Cannot be used together with include_vars.
+        Cannot be used together with keep_vars.
     output_name : str, optional
         Output filename. If None, generates from input filename with _SUB
         suffix. Should be left as None when processing multiple files.
@@ -212,8 +73,6 @@ def subset_netcdf(
         If True, automatically verify that the output file preserves
         the original data values after writing. Raises ValueError
         on mismatch.
-    warnings_enabled : bool, default True
-        Whether to emit user-facing warnings.
     workers : int, optional
         Number of parallel workers (multi-file only).
     show_progress : bool, default True
@@ -221,82 +80,104 @@ def subset_netcdf(
     **kwargs
         Additional arguments passed to Dataset.to_netcdf().
 
-    Returns
-    -------
-    str
-        Path to created output file (single-file).
-    tuple[list[str], list[tuple[str, str]]]
-        (successful_paths, failed_with_errors) when input_path is a list.
-
     Raises
     ------
     ValueError
-        If both include_vars and drop_vars are specified,
+        If both keep_vars and drop_vars are specified,
         if neither is specified, or if validation fails.
-
-    Examples
-    --------
-    >>> # Single file
-    >>> subset_netcdf("data.nc", "output/",
-    ...               include_vars=["temperature", "pressure"])
-    >>>
-    >>> # With automatic validation
-    >>> subset_netcdf("data.nc", "output/",
-    ...               include_vars=["temperature"], validate=True)
-    >>>
-    >>> # Multiple files in parallel
-    >>> subset_netcdf(["a.nc", "b.nc", "c.nc"], "output/",
-    ...               include_vars=["temperature"], workers=4)
     """
-    if include_vars is not None and drop_vars is not None:
+    # Validate the input parameters
+    if keep_vars is not None and drop_vars is not None:
         raise ValueError(
-            "Cannot specify both 'include_vars' and 'drop_vars'. "
+            "Cannot specify both 'keep_vars' and 'drop_vars'. "
             "Use one or the other."
         )
 
+    if keep_vars is None and drop_vars is None:
+        raise ValueError(
+            "Either 'keep_vars' or 'drop_vars' must be specified."
+        )
+
+    # FIXME: this will cause confusion as well,
+    # as list_netcdf_vars expects a single file path
+    # List all variables in the input file
     all_vars = list_netcdf_vars(input_path)
 
-    if drop_vars is not None:
-        var_paths = [v for v in all_vars if v not in drop_vars]
-        if warnings_enabled and len(var_paths) == len(all_vars):
-            warnings.warn(
-                f"None of the drop_vars {drop_vars} "
-                f"were found in {input_path}"
-            )
+    # Get the target variable paths for the subset
+    # Initialize an empty list of variable paths
+    # to avoid the linter warning
+    var_paths = []
 
-    elif include_vars is not None:
-        var_paths = include_vars
-        missing = [v for v in include_vars if v not in all_vars]
+    if keep_vars is not None:
+        var_paths = keep_vars
+        missing = [v for v in keep_vars if v not in all_vars]
         if missing:
             raise ValueError(
                 f"Variables not found in {input_path}: {missing}"
             )
 
-    else:
-        raise ValueError(
-            "Either 'include_vars' or 'drop_vars' must be specified."
-        )
+    if drop_vars is not None:
+        var_paths = [
+            v for v in all_vars if v not in drop_vars
+        ]
+        missing = [v for v in drop_vars if v not in all_vars]
+        if missing:
+            raise ValueError(
+                f"Variables not found in {input_path}: {missing}"
+            )
 
-    dataset = extract_netcdf_as_dataset(
+    # Extract the specified variables as a dataset
+    subset_ds = extract_netcdf_as_dataset(
         input_path=input_path,
         var_paths=var_paths,
     )
 
+    # Compare the original and subset variables if validation is enabled
+    if validate:
+        with nc.Dataset(input_path, "r") as ds_a:
+            # Compare global attributes
+            if ds_a.attrs != subset_ds.attrs:
+                raise ValueError(
+                    "Subset global attributes do not match the original"
+                )
+
+            # Compare variables
+            for var in var_paths:
+                original_var = ds_a[var]
+                subset_var = subset_ds[var]
+
+                # Compare values (NaNs values are considered equal)
+                if not np.array_equal(
+                    original_var[:], subset_var[:], equal_nan=True,
+                ):
+                    raise ValueError(
+                        f"Values for {var} do not match the original"
+                    )
+
+                # Compare attributes
+                if original_var.attrs != subset_var.attrs:
+                    raise ValueError(
+                        f"Attributes for {var} do not match the original"
+                    )
+
+    # Rename the variables if specified
     if var_renames:
-        dataset = rename_dataset_vars(
-            dataset=dataset,
+        subset_ds = rename_dataset_vars(
+            dataset=subset_ds,
             var_renames=var_renames,
         )
 
-    output_path = build_output_path(
+    # Write the dataset to a new file
+    output_path = build_subset_path(
         input_path=input_path,
         output_dir=output_dir,
-        custom_name=output_name,
-        suffix="_SUB",
+        output_name=output_name,
+        use_input_name=use_input_name,
+        suffix=suffix,
     )
 
     write_netcdf(
-        dataset=dataset,
+        dataset=subset_ds,
         output_path=output_path,
         compression=compression,
         complevel=complevel,
@@ -304,12 +185,3 @@ def subset_netcdf(
         fletcher32=fletcher32,
         **kwargs,
     )
-
-    if validate:
-        validate_netcdf_subset(
-            original_path=input_path,
-            subset_path=output_path,
-            var_paths=var_paths,
-        )
-
-    return output_path
