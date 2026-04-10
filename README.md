@@ -1,92 +1,86 @@
 # EnvDataPrep: High-performance Environmental Data Pre-processing
+
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Development Status](https://img.shields.io/badge/status-alpha-orange.svg)]()
 
 ## Why EnvDataPrep?
-EnvDataPrep saves **Money**, **Time** and **Disk Storage** for those who deal with environmental datasets.
 
-## Current Capacity
-The first feature is the **Unified, Configuration-Driven Extraction of NetCDF Files**. Below is an example usage that reduces a TROPOMI satellite product file size by ~90%:
+**EnvDataPrep** aims to help environmental scientists overcome common challenges in handling environmental datasets, incluidng:
+- Insufficient disk space for massive datasets
+- Complex conversions between different file formats
+- Time-consuming geospatial operations
+- And more ...
+
+EnvDataPrep is designed for *high performance* and *syntax simplicity*. By leveraging vectorized operations, parallelism, and industry-standard libraries like **`NumPy`**, **`Xarray`**, and **`netCDF4`**, it streamlines heavy and complex data preparation tasks into efficient and easy-to-use APIs.
+
+## Core Capacities
+
+Currently, the main functionality is **subsetting netCDF files**. Typical satellite products (e.g., TROPOMI NO<sub>2</sub>) and model simulations (e.g., WRF outputs) can shrink by a large fraction (e.g., 90%) when you keep only the data fields you need.
+
+### Example of subsetting netCDF files
+
 ```python
-"""Example of extracting a subset of variables from a netCDF file."""
+import glob
+import os
 
-from pathlib import Path
 import envdataprep as edp
 
-# Set up input and output directories
-ROOT = Path("E:/Samples/Satellites")
-input_dir = ROOT / "Input"
-output_dir = ROOT / "Output"
+# Directories
+INPUT_DIR = "path/to/input/directory"
+OUTPUT_DIR = "path/to/output/directory"
 
-# Select an example file
-file_name = "S5P_RPRO_L2__NO2____20190101T233659_20190102T011828_06322_03_020400_20221106T093236.nc"
-file_path = input_dir / file_name
+# Input files (using TROPOMI NO2 satellite products as an example)
+input_files = glob.glob(os.path.join(INPUT_DIR, "S5P*.nc"))
 
-# List all variables in the file
-variables = edp.list_netcdf_variables(file_path)
-print(*variables, sep='\n')
+# Explore all available variables
+all_vars = edp.list_netcdf_vars(input_files[0])
+print(*all_vars, sep="\n")
 
-# List the variables to extract
-variable_paths = [
+# Select the variables to keep
+selected_vars = [
     "PRODUCT/latitude",
     "PRODUCT/longitude",
+    "PRODUCT/time_utc",
+    "PRODUCT/qa_value",
     "PRODUCT/nitrogendioxide_tropospheric_column",
-    "PRODUCT/SUPPORT_DATA/INPUT_DATA/cloud_fraction_crb",
+    "PRODUCT/nitrogendioxide_tropospheric_column_precision",
+    "PRODUCT/SUPPORT_DATA/GEOLOCATIONS/solar_zenith_angle",
+    "PRODUCT/SUPPORT_DATA/GEOLOCATIONS/viewing_zenith_angle",
+    "PRODUCT/SUPPORT_DATA/GEOLOCATIONS/latitude_bounds",
+    "PRODUCT/SUPPORT_DATA/GEOLOCATIONS/longitude_bounds",
+    "PRODUCT/SUPPORT_DATA/INPUT_DATA/surface_altitude",
+    "PRODUCT/SUPPORT_DATA/INPUT_DATA/eastward_wind",
+    "PRODUCT/SUPPORT_DATA/INPUT_DATA/northward_wind",
 ]
 
-# Extract and save out
-# By default, the output file preserves the original group structure
-edp.extract_and_write_netcdf(
-    file_path,
-    output_dir,
-    variable_paths,
-    output_name="example_extracted_data.nc",
-    compression='zlib',
-    compression_level=9,
+# Subset the netCDF files in parallel
+edp.subset_netcdf(
+    nc_input=input_files,
+    output_dir=OUTPUT_DIR,
+    keep_vars=selected_vars,
+    workers=8,
 )
 ```
 
 ## Installation
 
-### Prerequisites
-- **[Mamba](https://mamba.readthedocs.io/) (recommended) or [Conda](https://docs.conda.io/en/latest/)**
-  - Preferred for installing scientific Python dependencies (netCDF4, xarray, numpy)
-  - Handles complex dependency resolution more reliably than pip alone
-- **Alternative**: pip installation should also work, but will be more complicated
+**Requirements:** Python **3.12+**.
 
-### Quick Setup
+Install from [PyPI](https://pypi.org/project/envdataprep/):
+
 ```bash
-# 1. Get the code
-git clone https://github.com/envmini/envdataprep.git
-cd envdataprep
-
-# 2. Create environment (choose one)
-# Option A: Using Mamba (faster, recommended)
-mamba env create -f environment.yml
-mamba activate envdataprep
-
-# Option B: Using Conda
-# conda env create -f environment.yml
-# conda activate envdataprep
-
-# 3. Install package in development mode
-pip install -e . --no-deps
-
-# 4. Verify installation
-python -c "import envdataprep; print('Installation successful!')"
+pip install envdataprep
 ```
-**Why development mode for now?**
-- Package not yet published to PyPI/conda-forge
-- Allows you to get latest features and contribute feedback
-- Easy to update with `git pull`
 
-**Note**: We use `pip install -e .` even in conda/mamba environments, but this `pip` command uses the pip from your active conda environment, not system pip, You can verify this with:
-```bash
-which pip  # Should show: .../miniforge3/envs/envdataprep/bin/pip
-```
+
+## ⚠️ Disclaimer
+Due to the massive scale and inherent diversity of environmental data, some edge cases may remain unexplored. For critical research or production workflows, it is strongly recommended to manually validate processed outputs. 
+
+If you encounter any discrepancies or unexpected behavior, please [open an issue](https://github.com/envmini/envdataprep/issues).
 
 ## License
+
 This project is licensed under the [MIT License](LICENSE).
 
-[⬆ Back to top](#envdataprep-high-peformance-environmental-data-pre-processing)
+[⬆ Back to top](#envdataprep-high-performance-environmental-data-pre-processing)

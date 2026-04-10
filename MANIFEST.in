@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include envdataprep *.py
+recursive-exclude tests *
+recursive-exclude scratch *
+recursive-exclude examples *
+global-exclude *.pyc
+global-exclude __pycache__
