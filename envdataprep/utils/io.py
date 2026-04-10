@@ -8,7 +8,7 @@ def build_subset_path(
     input_path: str,
     output_dir: str | None = None,
     output_name: str | None = None,
-    use_input_name: bool = True,
+    use_input_name: bool = False,
     suffix: str = "_SUB",
 ) -> str:
     """Build subset file path from input path.
@@ -41,8 +41,8 @@ def build_subset_path(
         filename = os.path.basename(input_path)
     else:
         base = os.path.splitext(os.path.basename(input_path))[0]
-        ext = os.path.splitext(input_path)[1]
-        filename = f"{base}{suffix}{ext}"
+        extension = os.path.splitext(input_path)[1]
+        filename = f"{base}{suffix}{extension}"
     return os.path.join(output_dir, filename)
 
 

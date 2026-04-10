@@ -1,7 +1,4 @@
-"""Synthetic (dummy) netCDF-style xarray datasets for tests, docs, and demos.
-
-Not for operational data pipelines — use :mod:`envdataprep.core.netcdf` for that.
-"""
+"""Dummy netCDF-style xarray datasets for tests, examples, and learning."""
 
 from __future__ import annotations
 
@@ -11,7 +8,7 @@ import xarray as xr
 from ..core.netcdf.write import write_netcdf
 
 
-def make_sample_flat_nc_dataset(
+def make_dummy_flat_nc_dataset(
     n_time: int = 4,
     n_level: int = 3,
     n_lat: int = 5,
@@ -121,13 +118,13 @@ def make_sample_flat_nc_dataset(
         },
         attrs={
             "title": "envdataprep synthetic flat nc",
-            "source": "envdataprep.sample_data",
+            "source": "envdataprep.dummy_data",
             "Conventions": "CF-1.10",
         },
     )
 
 
-def make_sample_grouped_nc_dataset(
+def make_dummy_grouped_nc_dataset(
     n_time: int = 4,
     n_row: int = 6,
     n_col: int = 8,
@@ -198,13 +195,13 @@ def make_sample_grouped_nc_dataset(
         },
         attrs={
             "title": "envdataprep synthetic grouped nc",
-            "source": "envdataprep.sample_data",
+            "source": "envdataprep.dummy_data",
             "sensor": "SYNTHETIC",
         },
     )
 
 
-def write_sample_flat_nc(
+def write_dummy_flat_nc(
     output_path: str,
     n_time: int = 4,
     n_level: int = 3,
@@ -215,8 +212,8 @@ def write_sample_flat_nc(
     compression: str | None = None,
     **kwargs,
 ) -> str:
-    """Write :func:`make_sample_flat_nc_dataset` to disk (synthetic data only)."""
-    ds = make_sample_flat_nc_dataset(
+    """Write :func:`make_dummy_flat_nc_dataset` to disk (synthetic data only)."""
+    ds = make_dummy_flat_nc_dataset(
         n_time=n_time,
         n_level=n_level,
         n_lat=n_lat,
@@ -227,7 +224,7 @@ def write_sample_flat_nc(
     return output_path
 
 
-def write_sample_grouped_nc(
+def write_dummy_grouped_nc(
     output_path: str,
     n_time: int = 4,
     n_row: int = 6,
@@ -237,8 +234,8 @@ def write_sample_grouped_nc(
     compression: str | None = None,
     **kwargs,
 ) -> str:
-    """Write :func:`make_sample_grouped_nc_dataset` to disk (synthetic only)."""
-    ds = make_sample_grouped_nc_dataset(
+    """Write :func:`make_dummy_grouped_nc_dataset` to disk (synthetic only)."""
+    ds = make_dummy_grouped_nc_dataset(
         n_time=n_time,
         n_row=n_row,
         n_col=n_col,

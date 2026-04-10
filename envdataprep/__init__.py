@@ -9,11 +9,11 @@ from .core.netcdf import (
     check_netcdf,
     subset_netcdf,
 )
-from .sample_data import (
-    make_sample_flat_nc_dataset,
-    make_sample_grouped_nc_dataset,
-    write_sample_flat_nc,
-    write_sample_grouped_nc,
+from .dummy_data import (
+    make_dummy_flat_nc_dataset,
+    make_dummy_grouped_nc_dataset,
+    write_dummy_flat_nc,
+    write_dummy_grouped_nc,
 )
 
 

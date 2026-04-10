@@ -5,7 +5,7 @@ import warnings
 import netCDF4 as nc
 import xarray as xr
 
-from ...utils.decorators import handle_file_errors, enable_parallel
+from ...utils.decorators import handle_file_errors
 
 
 def _collect_netcdf_var_paths(
@@ -18,7 +18,7 @@ def _collect_netcdf_var_paths(
 
     Parameters
     ----------
-    group : netCDF4.Dataset
+    group : nc.Dataset
         The netCDF group to traverse (can be root dataset or subgroup).
     prefix : str, default ""
         Current path prefix for building full variable paths.
@@ -47,12 +47,12 @@ def _collect_netcdf_var_paths(
 
 
 @handle_file_errors
-def list_netcdf_vars(input_path: str) -> list[str]:
+def list_netcdf_vars(nc_input: str) -> list[str]:
     """Get all available variable paths in a netCDF file.
 
     Parameters
     ----------
-    input_path : str
+    nc_input : str
         Path to netCDF file.
 
     Returns
@@ -60,61 +60,50 @@ def list_netcdf_vars(input_path: str) -> list[str]:
     list[str]
         List of variable paths.
     """
-    with nc.Dataset(input_path, "r") as ds:
+    with nc.Dataset(nc_input, "r") as ds:
         return _collect_netcdf_var_paths(group=ds)
 
 
-@enable_parallel
-def check_netcdf(
-    input_path: str,
-    deep: bool = False,
-    require_vars: bool = True,
-    workers: int | None = None,
-    show_progress: bool = True,
-) -> bool | list[tuple[str, bool | None, str | None]]:
-    """Check whether a netCDF file can be opened and read.
+def _check_netcdf_single(nc_input: str) -> str | None:
+    """Check one netCDF file; return the path if it is faulty, else None.
 
-    Useful for detecting corrupted or incomplete downloads
-    before running expensive processing pipelines.
+    A file is treated as faulty if variables cannot be listed (after
+    :func:`list_netcdf_vars` error handling) or the variable list is empty.
 
     Parameters
     ----------
-    input_path : str or list[str] or tuple[str, ...]
-        One path, or a sequence of paths to check.
-    deep : bool, default False
-        If False, only verify that the file opens. If True, walk the full
-        group tree (via :func:`list_netcdf_vars`).
-    require_vars : bool, default True
-        Only applies when ``deep`` is True. If True, require at least one
-        variable path; if False, a successfully opened file passes even
-        with zero variables.
-    workers : int, optional
-        If greater than 1, run checks in parallel (multi-path only).
-    show_progress : bool, default True
-        Progress bar when ``workers > 1``.
+    nc_input : str
+        Path to netCDF file.
 
     Returns
     -------
-    bool
-        Single path: whether the check passed.
-    list[tuple[str, bool | None, str | None]]
-        Multiple paths: one row per path, in order — ``(path, result, error)``.
-        ``error`` is None on success; ``result`` is the boolean outcome.
+    str or None
+        ``nc_input`` if the file is faulty; ``None`` if it appears readable
+        with at least one variable.
     """
     try:
-        if not deep:
-            with nc.Dataset(input_path, "r"):
-                pass
-            return True
-        nc_vars = list_netcdf_vars(input_path)
-        if require_vars:
-            return len(nc_vars) > 0
-        return True
+        nc_vars = list_netcdf_vars(nc_input)
+        if not nc_vars:
+            warnings.warn(f"No variables found in {nc_input}")
+            return nc_input
     except Exception as e:
-        warnings.warn(
-            f"Could not check netCDF file: {input_path} - {e}"
-        )
-        return False
+        warnings.warn(f"Failed to read variables from {nc_input}: {e}")
+        return nc_input
+    return None
+
+
+def check_netcdf(nc_input: str | list[str]) -> str | None | list[str]:
+    """Check netCDF file(s) and return faulty paths."""
+
+    # single file
+    if isinstance(nc_input, str):
+        return _check_netcdf_single(nc_input)
+
+    # list of files (only use sequential processing for now)
+    if isinstance(nc_input, list):
+        all_checked = [_check_netcdf_single(f) for f in nc_input]
+        faulty_files = [v for v in all_checked if v is not None]
+        return faulty_files
 
 
 def convert_nc_var_to_dataarray(

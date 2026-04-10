@@ -1,6 +1,5 @@
 """Minimal demo: subsetting TROPOMI products as netCDF files."""
 
-# Imports
 import glob
 import os
 
@@ -30,8 +29,8 @@ selected_vars = [
 input_files = glob.glob(os.path.join(INPUT_DIR, "S5P*.nc"))
 
 edp.subset_netcdf(
-    input_path=input_files,
+    nc_input=input_files,
     output_dir=OUTPUT_DIR,
     keep_vars=selected_vars,
-    workers=8
+    workers=8,
 )

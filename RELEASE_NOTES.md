@@ -53,9 +53,9 @@ variables = edp.list_netcdf_variables('data.nc')
 
 # Extract specific variables
 edp.subset_netcdf(
-    input_path='large_file.nc',
+    nc_input='large_file.nc',
     output_dir='output/',
-    include_variables=['temperature', 'pressure']
+    keep_vars=['temperature', 'pressure'],
 )
 ```
 
