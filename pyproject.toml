@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "envdataprep"
-version = "0.1.1"
+version = "0.1.2"
 description = "Extensible Environmental Data Preprocessing Framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -42,11 +42,10 @@ dev = [
     "black>=23.0.0",
 ]
 
-# [project.urls]
-# Homepage = "https://github.com/envmini/envdataprep"
-# Documentation = "https://envdataprep.readthedocs.io"
-# Repository = "https://github.com/envmini/envdataprep"
-# Issues = "https://github.com/envmini/envdataprep/issues"
+[project.urls]
+Homepage = "https://github.com/envmini/envdataprep"
+Repository = "https://github.com/envmini/envdataprep"
+Issues = "https://github.com/envmini/envdataprep/issues"
 
 [tool.setuptools.packages.find]
 include = ["envdataprep*"]

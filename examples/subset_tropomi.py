@@ -5,10 +5,18 @@ import os
 
 import envdataprep as edp
 
-# User configuration
+# Directories
 INPUT_DIR = "path/to/input/directory"
 OUTPUT_DIR = "path/to/output/directory"
 
+# Input files (using TROPOMI as an example)
+input_files = glob.glob(os.path.join(INPUT_DIR, "S5P*.nc"))
+
+# Explore all available variables
+all_vars = edp.list_netcdf_vars(input_files[0])
+print(*all_vars, sep="\n")
+
+# Select the variables to keep
 selected_vars = [
     "PRODUCT/latitude",
     "PRODUCT/longitude",
@@ -25,9 +33,7 @@ selected_vars = [
     "PRODUCT/SUPPORT_DATA/INPUT_DATA/northward_wind",
 ]
 
-# The parallel subsetting process
-input_files = glob.glob(os.path.join(INPUT_DIR, "S5P*.nc"))
-
+# Subset the netCDF files in parallel
 edp.subset_netcdf(
     nc_input=input_files,
     output_dir=OUTPUT_DIR,

@@ -1,74 +1,49 @@
-# EnvDataPrep Release Notes
+# EnvDataPrep release notes
 
-## 🔧 v0.1.1 (Latest)
+## v0.1.2 (latest)
 
-### Bug Fixes
-- **Fixed import error**: Added `tqdm` to required dependencies
-- **Improved installation**: No longer need `pip install envdataprep[parallel]`
-- **Better user experience**: Package works immediately after `pip install envdataprep`
+### Code changes
+- Redesigned the code structure and simplified the public APIs.
+- Fixed a bug in extracting netCDF metadata.
 
-### Installation
-```bash
-pip install envdataprep
-```
+### Documentation
+- **README** and **Examples** updated.
 
 ---
+## v0.1.0 (initial PyPI)
 
-## 🎉 v0.1.0 (Initial Release)
+First PyPI release to secure the package name.
 
-First PyPI release securing the package name.
+### Highlights
 
-### Core Functionality
-- **NetCDF Processing**: Complete netCDF file subsetting and variable extraction
-- **Parallel Processing**: Multi-core processing for batch operations
-- **Data Preservation**: Maintains original data integrity with configurable fill value handling
+- NetCDF variable listing and subsetting (`keep_vars` / `drop_vars`).
+- Optional multi-file processing with `workers > 1`.
+- Reads netCDF variables with automatic mask/scale **disabled** in the extraction path so stored values are preserved as written unless you change that in your own code.
 
-### Known Issues
-- Requires `pip install envdataprep[parallel]` or separate `pip install tqdm` (fixed in v0.1.1)
-
-### Key Features
-- `list_netcdf_variables()` - Discover variables in netCDF files
-- `subset_netcdf()` - Extract or exclude specific variables
-- `extract_netcdf_as_xarray_dataset()` - Convert to xarray for analysis
-- `process_files_parallel()` - Batch process multiple files
-
-### Dependencies
-- netCDF4 >= 1.6.0
-- xarray >= 2023.1.0  
-- numpy >= 1.24.0
-
-## 🚀 Installation
-
-```bash
-pip install envdataprep
-```
-
-## 📖 Quick Start
+### Quick start
 
 ```python
 import envdataprep as edp
 
-# List variables in a file
-variables = edp.list_netcdf_variables('data.nc')
+variables = edp.list_netcdf_vars("data.nc")
 
-# Extract specific variables
 edp.subset_netcdf(
-    nc_input='large_file.nc',
-    output_dir='output/',
-    keep_vars=['temperature', 'pressure'],
+    nc_input="large_file.nc",
+    output_dir="output/",
+    keep_vars=["temperature", "pressure"],
 )
 ```
 
-## 🔮 What's Next
+---
 
-This v0.1.0 release focuses on netCDF processing. Future releases will add:
-- GRIB2 support
-- GeoTIFF conversion
-- Geographic clipping
-- More format conversions
+## Roadmap (ideas)
 
-## 📝 Notes
+- GRIB2 and GeoTIFF support  
+- Geographic clipping and more format conversions  
 
-- This is an alpha release focused on securing the PyPI package name
-- Core netCDF functionality is stable and tested
-- Additional features and improvements coming in future releases
+---
+
+## Notes
+
+- **Alpha:** APIs may still change; pin versions in production if needed.
+- **Verification:** Rely on your own checks for scientific correctness of subset outputs (variable lists, dtypes, mask/scale when reading files for comparison).
